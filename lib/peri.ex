@@ -250,17 +250,21 @@ defmodule Peri do
       Peri.validate(schema, invalid_data)
       # => {:error, [email: "is required"]}
   """
-  def validate(schema, data) when is_enumerable(schema) and is_enumerable(data) do
+  def validate(schema, data, opts \\ [])
+
+  def validate(schema, data, opts) when is_enumerable(schema) and is_enumerable(data) do
     data = filter_data(schema, data)
     state = Peri.Parser.new(data, root_data: data)
 
-    case traverse_schema(schema, state) do
+    cast_fn = Keyword.get(opts, :cast_fn)
+
+    case traverse_schema(schema, state, [], cast_fn) do
       %Peri.Parser{errors: [], data: result} -> {:ok, result}
       %Peri.Parser{errors: errors} -> {:error, errors}
     end
   end
 
-  def validate(schema, data) do
+  def validate(schema, data, _) do
     case validate_field(data, schema, data) do
       :ok ->
         {:ok, data}
@@ -308,9 +312,16 @@ defmodule Peri do
   end
 
   @doc false
-  defp traverse_schema(schema, %Peri.Parser{} = state, path \\ []) do
+  defp traverse_schema(schema, %Peri.Parser{} = state, path \\ [], cast_fn \\ nil) do
     Enum.reduce(schema, state, fn {key, type}, parser ->
       value = get_enumerable_value(parser.data, key)
+
+      value =
+        if is_function(cast_fn, 2) do
+          cast_fn.(type, value)
+        else
+          value
+        end
 
       case validate_field(value, type, parser) do
         :ok ->
